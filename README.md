@@ -1,4 +1,3 @@
-ltu-telemetry
-=============
+# LTU Telemetry
 
-LTU Aero telemetry documents and code
+LTU Aero telemetry documents and code.
