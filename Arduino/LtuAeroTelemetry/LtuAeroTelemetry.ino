@@ -134,6 +134,7 @@ const int ADC_MAX = (int)pow(2.0, (float)ADC_RESOLUTION) - 1.0;
 const float VREF = 3.284;
 
 // Globals
+unsigned long previous_time = 0ul;
 int ground_level_pressure;
 unsigned short dmp_packet_size;
 
@@ -204,35 +205,39 @@ void setup() {
 }
 
 void loop() {
-  // AIN
-  send_ampere_measure();
+  unsigned long current_time = millis();
+  unsigned long delta_time = current_time - previous_time;
   
-  // ALT, CLB
-  send_altitude();
-  
-  // AQW, AQX, AQY, AQZ
-  send_attitude();
-  
-  // HDG
-  send_heading();
-  
-  // LAT, LON
-  send_position();
-  
-  // SPD
-  send_airspeed();
-  
-  // TMP
-  send_temperature();
-  
-  // VIN
-  send_voltage_measure();
-  
-  // Print a blank line
-  Serial.println();
-  
-  // Small delay between transmission bursts
-  delay(500);
+  if (delta_time >= 200ul) {
+    previous_time = current_time;
+    
+    // AQW, AQX, AQY, AQZ
+    send_attitude();
+    
+    // SPD
+    send_airspeed();
+    
+    // AIN
+    send_ampere_measure();
+    
+    // ALT, CLB
+    send_altitude();
+    
+    // HDG
+    send_heading();
+    
+    // VIN
+    send_voltage_measure();
+    
+    // LAT, LON
+    send_position();
+    
+    // TMP
+    send_temperature();
+    
+    // Print blank line in debug output
+    Serial.println();
+  }
 }
 
 /**
@@ -307,6 +312,12 @@ void send_attitude() {
   Quaternion q;
   byte buffer[64];
   
+  // Reset in order to continue cleanly
+  if (count == 1024) {
+    mpu->resetFIFO();
+    count = mpu->getFIFOCount();
+  }
+  
   // Wait for the correct available data length
   while (count < dmp_packet_size) count = mpu->getFIFOCount();
   
@@ -353,33 +364,23 @@ void send_attitude() {
  * http://www.adafruit.com/datasheets/AN203_Compass_Heading_Using_Magnetometers.pdf
  */
 void send_heading() {
-  unsigned short count = mpu->getFIFOCount();
-  int16_t data[3];
-  int16_t x;
-  int16_t y;
-  byte buffer[64];
+  int16_t ax, ay, az, gx, gy, gz, mx, my, mz;
   float heading;
   
-  // Wait for the correct available data length
-  while (count < dmp_packet_size) count = mpu->getFIFOCount();
+  // Read sensor
+  mpu->getMotion9(&ax, &ay, &az,
+                  &gx, &gy, &gz,
+                  &mx, &my, &mz);
   
-  // Read a packet from the sensor's FIFO
-  mpu->getFIFOBytes(buffer, dmp_packet_size);
-  
-  // Get magnetometer data from the buffer
-  mpu->dmpGetMag(data, buffer);
-  
-  // Determine the heading from magnetic field measurements
-  x = data[0];
-  y = data[1];
-  
-  if (y > 0) {
-    heading = 90.0 - (atan((float)x / (float)y) * (180.0 / PI));
-  } else if (y < 0) {
-    heading = 270.0 - (atan((float)x / (float)y) * (180.0 / PI));
-  } else if (y == 0 && x < 0) {
+  // Compute heading
+  // Note: Does not correct for local magnetic delineation
+  if (my > 0) {
+    heading = 90.0 - (atan((float)mx / (float)my) * (180.0 / PI));
+  } else if (my < 0) {
+    heading = 270.0 - (atan((float)mx / (float)my) * (180.0 / PI));
+  } else if (my == 0 && mx < 0) {
     heading = 180.0;
-  } else if (y == 0 && x > 0) {
+  } else if (my == 0 && mx > 0) {
     heading = 0.0;
   }
   
